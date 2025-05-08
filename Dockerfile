@@ -12,7 +12,11 @@ RUN --mount=from=ghcr.io/astral-sh/uv,source=/uv,target=/bin/uv \
 COPY ./app /code/app
 COPY ./main.py /code/
 
-RUN groupadd -r nonroot && useradd -r -g nonroot nonroot
+# Create nonroot user
+RUN groupadd -r nonroot && useradd -r -g nonroot nonroot \
+    && mkdir -p /home/nonroot \
+    && chown -R nonroot:nonroot /home/nonroot
+
 USER nonroot
 
 CMD ["/code/.venv/bin/uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

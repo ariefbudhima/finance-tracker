@@ -40,15 +40,21 @@ class OpenAIProcessor:
         - Use "type": "expense" for all spending, including transfer keluar (transfer to other people, payment, or transfer to external accounts).
         - Use "type": "income" for all incoming money, including transfer masuk (receiving money from others or external accounts).
         - Use "type": "transfer" only for transfer antar rekening milik sendiri (internal transfer between user’s own accounts).
+        - If the text includes 'transfer' or is from a bank, categorize as 'transfer' (kecuali jika transfer keluar/masuk, ikuti rules di atas)
+        - If includes 'listrik', 'internet', etc., categorize as 'bills'
+        - category is Required!
+        - If include transfer in, categorize as 'Transfer in', and note is 'Transfer Masuk'
+        - category should not filled with "others"
+        - Note is required!
 
         Expected JSON format:
         {{
-        "type": "expense" | "income" | "transfer",
+        "type": "Expense" | "Income" | "Transfer",
         "amount": 25000,
         "date": "2025-04-14",  // yyyy-mm-dd
         "time": "10:43",       // optional, hh:mm
-        "category": "groceries",
-        "note": "transfer to RECEPIENT NAME | groceries at Alfamart", // optional if any, fill it with something meaningful
+        "category": "Groceries" | "Food_and_drinks" | "Transportation" | "Bills" | "Shopping" | "Entertainment" | "Health" | "Education" | "Investment" | "Salary" | "Business" | "Gift" | "Transfer" ,
+        "note": "Descriptive note about the transaction in English. Examples:\n- Grocery shopping at Alfamart\n- Lunch at Restaurant XYZ\n- Monthly electricity bill payment\n- Transfer to John Doe for rent\n- Salary payment from PT ABC\n- Investment in mutual funds",
         "source": "Alfamart",
         "full_address": "Jl. Raya No. 123, Jakarta", //contain "jalan" or "JL" or "street" or "st" or "street name" or "address" or "address name"
         "items": [
@@ -67,10 +73,13 @@ class OpenAIProcessor:
         }}
 
         Additional Rules:
-        - If the source includes 'Alfamart', 'Indomaret', or 'supermarket', set category to 'groceries'
-        - If the text includes 'transfer' or is from a bank, categorize as 'transfer' (kecuali jika transfer keluar/masuk, ikuti rules di atas)
-        - If includes 'listrik', 'internet', etc., categorize as 'bills'
-        - If unclear, default category to 'others'
+        - If the source includes 'Alfamart', 'Indomaret', or 'supermarket', set category to 'Groceries'
+        - If the text includes 'transfer' or is from a bank, categorize as 'Transfer' (kecuali jika transfer keluar/masuk, ikuti rules di atas)
+        - If includes 'listrik', 'internet', etc., categorize as 'Bills'
+        - If includes 'steam', 'game', etc., categorize as 'Entertainment'
+        - If includes 'saving', 'simpanan', etc., categorize as 'Investment'
+        - If includes 'salary', 'gaji', etc., categorize as 'Salary'
+        - If unclear, default category to 'Others'
         - If it's a transfer keluar (to other people or payment), set the note to "transfer to RECEPIENT NAME" (only recipient name) | look the text, before or after text contain "recepient" or "payment to" like SAMBARA PROV JABAR
 
         Example inputs you may receive:
@@ -231,20 +240,32 @@ class OpenAIProcessor:
     async def handle_user_message(self, user_message: str, history_message: str, sender: str = None):
         query_str = self.detect_query(user_message)
         logging.info(query_str.strip().upper() == "NO_QUERY")
+
         if query_str.strip().upper() == "NO_QUERY":
+            # Tambahkan heuristik: jika terlihat seperti transaksi, parse dan simpan
+            if self.seems_like_transaction(user_message):
+                parsed = self.send_text(user_message)
+                parsed_dict = json.loads(parsed)
+                parsed_dict["phone_number"] = sender
+                parsed_dict["image_url"] = None
+                parsed_dict["created_at"] = datetime.utcnow().isoformat()
+
+                await self.save_transaction(parsed_dict)
+                return "Transaksi berhasil disimpan."
+            
             return self.send_chat(user_message, history_message, sender)
         else:
             try:
-                # query_dict = json.loads(query_str)
-                logging.info("harusnya masuk ke sini ga sih?")
                 query_dict = json.loads(query_str)
                 query_dict["phone_number"] = sender
                 logging.info(f"Query: {query_dict}")
             except Exception as e:
                 logging.error(f"Error parsing query: {str(e)}")
-                # return self.send_chat(user_message, sender)
+                return self.send_chat(user_message, history_message, sender)
+            
             db_result = await self.run_db_query(query_dict)
             return self.answer_with_db(user_message, db_result)
+
         
     async def run_db_query(self, query_dict):
         if mongodb.db is not None:
@@ -256,7 +277,21 @@ class OpenAIProcessor:
         else:
             raise Exception("MongoDB not connected")
         
-    
+    def seems_like_transaction(self, text: str) -> bool:
+        keywords = ["beli", "bayar", "transfer", "topup", "makan", "keluar", "uang", "rp", "IDR"]
+        question_words = ["berapa", "kapan", "siapa", "dimana", "apa", "total"]
+        return (
+            any(k in text.lower() for k in keywords) and
+            not any(q in text.lower() for q in question_words)
+        )
+
+    async def save_transaction(self, data: dict):
+        if mongodb.db is not None:
+            transaction_collection = mongodb.db["transactions"]
+            await transaction_collection.insert_one(data)
+        else:
+            raise Exception("MongoDB not connected")
+
         
     @staticmethod
     def convert_objectid_to_str(doc):

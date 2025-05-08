@@ -6,6 +6,7 @@ from app.shared.whatsapp_service import WhatsAppAPI  # Pastikan ini diimpor deng
 from app.domains.otp.otp_service import OTPService
 from app.config.mongodb import mongodb
 from app.domains.users.service import UserService
+from app.config.setting import settings
 import logging
 import os
 from dotenv import load_dotenv
@@ -19,11 +20,33 @@ logging.basicConfig(
 
 app = FastAPI()
 
+# origins = settings.allowed_origins.split(",")
+
+# # Allow CORS for the specified origins
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=origins,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+print("Allowed origins:", settings.parsed_origins)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.parsed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.on_event("startup")
 async def startup():
     # Inisialisasi WhatsAppAPI di sini untuk menghindari circular import
-    api_url = os.getenv("WHATSAPP_API_URL")
-    session = os.getenv("WHATASPP_SESSION")
+    api_url = settings.whatsapp_api_url
+    session = settings.whatsapp_session
     ENDPOINTS = {
         "send_message": "/client/sendMessage/",
         "status_typing": "/chat/sendStateTyping/",
@@ -33,7 +56,7 @@ async def startup():
     whatsapp_api = WhatsAppAPI(api_url, session, ENDPOINTS)
     app.state.whatsapp_api = whatsapp_api  # Simpan objek ke state FastAPI
 
-    # Inisialisasi lainnya
+    # Initialize MongoDB connection
     try:
         await mongodb.init_db()
         collection = mongodb.db.transactions
@@ -41,6 +64,8 @@ async def startup():
         logging.info(f"MongoDB connected. Found {count} documents in 'transactions' collection.")
     except Exception as e:
         logging.error(f"MongoDB connection failed: {str(e)}")
+        raise
+        
     app.state.user_service = UserService()
     app.state.otp_service = OTPService(whatsapp_api)
 
@@ -48,18 +73,7 @@ async def startup():
 def shutdown_db():
     mongodb.close()
 
-origins = [
-    "http://localhost:3000",
-    "*",]
 
 app.include_router(transaction_router, prefix="/api", tags=["Transaction"])
 app.include_router(otp_router, prefix="/otp", tags=["OTP"])
 
-# Allow CORS for the specified origins
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
