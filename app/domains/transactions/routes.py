@@ -59,7 +59,7 @@ async def webhook(
                     access_token = jwt_auth.jwt_service.create_access_token(sender)
                     # Construct dashboard URL with token
                     dashboard_url = f"{settings.frontend_base_url}/dashboard?token={access_token}"
-                    message = f"Here's your secure dashboard link (valid for 24 hours):\n{dashboard_url}"
+                    message = f"Here's your secure dashboard link (valid for 30 minutes):\n{dashboard_url}"
                 else:
                     # Handle regular text messages
                     logger.info("Processing user message with LLM service")
