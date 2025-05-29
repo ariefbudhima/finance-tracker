@@ -1,6 +1,7 @@
 import logging
 import datetime
 import json
+from bson import ObjectId
 import base64
 from typing import Optional
 from app.config.mongodb import mongodb
@@ -200,20 +201,19 @@ class TransactionService:
         summary = {item["_id"]: item["total"] for item in result}
         return summary
 
+    # change to filter that the data shown is not deleted (soft delete)
     async def get_daily_stats(self, phone_number: str, month: int, year: int):
         if mongodb.db is None:
             raise Exception("MongoDB not connected")
 
         collection = mongodb.db["transactions"]
 
-        # Tentukan range tanggal awal dan akhir bulan
         start_date = datetime.datetime(year, month, 1)
         if month == 12:
             end_date = datetime.datetime(year + 1, 1, 1)
         else:
             end_date = datetime.datetime(year, month + 1, 1)
 
-        # Ubah tanggal ke format string sesuai format data di MongoDB (yyyy-mm-dd)
         start_date_str = start_date.strftime('%Y-%m-%d')
         end_date_str = end_date.strftime('%Y-%m-%d')
 
@@ -221,7 +221,8 @@ class TransactionService:
             {
                 "$match": {
                     "phone_number": phone_number,
-                    "date": {"$gte": start_date_str, "$lt": end_date_str}
+                    "date": {"$gte": start_date_str, "$lt": end_date_str},
+                    "is_deleted": {"$ne": True}  # exclude soft-deleted items
                 }
             },
             {
@@ -259,9 +260,10 @@ class TransactionService:
                 }
             },
             {
-                "$sort": {"date": 1}
+                "$sort": {"date": -1}
             }
         ]
+
 
 
         result = await collection.aggregate(pipeline).to_list(None)
@@ -429,4 +431,34 @@ class TransactionService:
 
         logging.info(f"Pipeline: {pipeline}")
         result = await collection.aggregate(pipeline).to_list(None)
+        return result
+    
+    # delete transaction, make it soft delete
+    async def delete_transaction(self, transaction_id: str):
+        if mongodb.db is None:
+            raise Exception("MongoDB not connected")
+
+        collection = mongodb.db["transactions"]
+        result = await collection.update_one(
+            {"_id": ObjectId(transaction_id)}, 
+            {"$set": {"is_deleted": True}}
+        )
+        return result
+
+    async def update_transaction(self, transaction_id: str, data: dict):
+        if mongodb.db is None:
+            raise Exception("MongoDB not connected")
+
+        # Hitung ulang amount kalau field items dikirim
+        if "items" in data:
+            try:
+                data["amount"] = sum(item["price"] * item.get("quantity", 1) for item in data["items"])
+            except (KeyError, TypeError) as e:
+                raise ValueError(f"Invalid item format: {e}")
+
+        collection = mongodb.db["transactions"]
+        result = await collection.update_one(
+            {"_id": ObjectId(transaction_id)},
+            {"$set": data}
+        )
         return result

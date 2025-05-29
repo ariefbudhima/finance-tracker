@@ -148,3 +148,43 @@ async def get_category_stats(
 #     except Exception as e:
 #         logger.error(f"Error fetching monthly stats: {e}")
 #         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+@router.delete("/transactions/{transaction_id}")
+async def delete_transaction(
+    transaction_id: str,
+    authorized_phone: str = Depends(jwt_auth)
+):
+    try:
+        await service.delete_transaction(transaction_id)
+        return {"message": "Transaction deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting transaction: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+# @router.post("/request/dashboard")
+# async def request_dashboard(
+#     phone_number: str
+#     ):
+#     try:
+#         access_token = jwt_auth.jwt_service.create_access_token(phone_number)
+#         # Construct dashboard URL with token
+#         dashboard_url = f"{settings.frontend_base_url}/dashboard?token={access_token}"
+#         return {
+#             "dashboard_url": dashboard_url
+#         }
+#     except Exception as e:
+#         logger.error(f"Error requesting dashboard: {e}")
+#         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+@router.patch("/transactions/{transaction_id}")
+async def update_transaction(
+    transaction_id: str,
+    data: dict,
+    authorized_phone: str = Depends(jwt_auth)
+):
+    try:
+        await service.update_transaction(transaction_id, data)
+        return {"message": "Transaction updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating transaction: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
