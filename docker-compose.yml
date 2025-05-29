@@ -5,7 +5,7 @@ services:
     build: .
     container_name: finance-tracker
     ports:
-      - "8000:8000"
+      - "58000:8000"
     volumes:
       - .:/app
     env_file:
