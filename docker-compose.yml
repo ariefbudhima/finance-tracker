@@ -11,3 +11,9 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    networks:
+      - npm_network
+
+networks:
+  npm_network:
+    external: true
